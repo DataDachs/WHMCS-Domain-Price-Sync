@@ -271,34 +271,65 @@ if (! function_exists('spDomainPriceSync_verifyLicense')) {
             return $r;
         }
 
-        // Encryption salt
-        $_sk = 'sPaSdOmAiNpRiCeSyNcSeCuRiTyKeY';
+        $_sk     = 'sPaSdOmAiNpRiCeSyNcSeCuRiTyKeY';
+        $keyHash = hash('sha256', $nk);
 
-        // Local cache validation (7 days grace/cache)
+        // Parse and validate cached license payload bound to the current license key
+        $cachedActive = false;
+        $cachedAgeOk  = false;
+        $graceAgeOk   = false;
         if ($lk && strlen($lk) > 10) {
-            $lkd = base64_decode($lk);
-            if ($lkd) {
+            $lkd = base64_decode($lk, true);
+            if (is_string($lkd) && $lkd !== '') {
                 $p = @unserialize($lkd, ['allowed_classes' => false]);
-                if (is_array($p) && isset($p['cd']) && isset($p['v'])) {
-                    $cd = date('Ymd', strtotime($p['cd']));
-                    if ($cd >= date('Ymd', strtotime('-7 days'))) {
-                        $vh = md5($_sk . $p['cd']);
-                        if (hash_equals(substr($vh, 0, 16), substr($p['v'], 0, 16))) {
-                            $r['st'] = $p['s'] ?? 'Invalid';
-                            $r['dk'] = $lk;
-                            return $r;
+                if (is_array($p) && isset($p['cd'], $p['v'], $p['k'], $p['s'])) {
+                    $cdTs = strtotime((string) $p['cd']);
+                    if ($cdTs !== false) {
+                        $cd = date('Ymd', $cdTs);
+                        $vh = hash_hmac('sha256', $cd . '|' . $keyHash . '|' . (string) $p['s'], $_sk);
+                        if (hash_equals($keyHash, (string) $p['k']) && hash_equals($vh, (string) $p['v'])) {
+                            $cachedActive = ((string) $p['s'] === 'Active');
+                            $cachedAgeOk  = ($cd >= date('Ymd', strtotime('-7 days')));
+                            $graceAgeOk   = ($cd >= date('Ymd', strtotime('-12 days')));
                         }
                     }
                 }
             }
         }
 
+        if ($cachedActive && $cachedAgeOk) {
+            $r['st'] = 'Active';
+            $r['dk'] = $lk;
+            return $r;
+        }
+
+        $domain = (string) ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '');
+        if ($domain === '') {
+            try {
+                $sysUrl = Capsule::table('tblconfiguration')->where('setting', 'SystemURL')->value('value');
+                if (is_string($sysUrl) && $sysUrl !== '') {
+                    $domain = (string) parse_url($sysUrl, PHP_URL_HOST);
+                }
+            } catch (\Throwable $e) {
+                $domain = '';
+            }
+        }
+        if ($domain === '') {
+            $domain = php_uname('n');
+        }
+
+        $ip = (string) ($_SERVER['SERVER_ADDR'] ?? '');
+        if ($ip === '' || $ip === '127.0.0.1') {
+            $resolvedIp = ($domain !== '' && str_contains($domain, '.')) ? gethostbyname($domain) : '';
+            $ip         = ($resolvedIp !== '' && $resolvedIp !== $domain) ? $resolvedIp : (gethostbyname(php_uname('n')) ?: '127.0.0.1');
+        }
+
         // Query licensing server
         $ch       = curl_init();
         $postData = [
             'licensekey' => $nk,
-            'domain'     => $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? php_uname('n'),
-            'ip'         => $_SERVER['SERVER_ADDR'] ?? '127.0.0.1',
+            'domain'     => $domain,
+            'ip'         => $ip,
             'dir'        => dirname(__FILE__),
         ];
         curl_setopt($ch, CURLOPT_URL, 'https://login.streampanel.net/modules/servers/licensing/verify.php');
@@ -306,30 +337,22 @@ if (! function_exists('spDomainPriceSync_verifyLicense')) {
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         $resp = (string) curl_exec($ch);
         $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        // Offline grace period (allow up to 3 failed connection attempts)
-        static $nc = null;
+        // Offline grace period only if a previously verified active cache exists within 12 days
         if ($code !== 200 || empty($resp)) {
-            if ($nc === null) {
-                $nc = 0;
-            }
-            $nc++;
-            if ($nc <= 3) {
-                $cd = date('Ymd');
-                $vh = md5($_sk . $cd);
-                $dk = base64_encode(serialize(['cd' => $cd, 's' => 'Active', 'v' => $vh]));
+            if ($cachedActive && $graceAgeOk) {
                 return [
                     'st' => 'Active',
-                    'dk' => $dk,
+                    'dk' => $lk,
                 ];
             }
             return $r;
         }
-
-        $nc = 0;
 
         // Parse XML response
         $data = [];
@@ -339,24 +362,17 @@ if (! function_exists('spDomainPriceSync_verifyLicense')) {
             }
         }
 
-        $status    = $data['status'] ?? 'Invalid';
-        $md5remote = $data['md5hash'] ?? '';
-
-        if (! empty($md5remote)) {
-            $md5local = md5($_sk . implode('', [
-                $data['customfields'] ?? '',
-                $data['addons'] ?? '',
-            ]));
-            if (! hash_equals($md5local, $md5remote)) {
-                return $r;
-            }
-        }
-
+        $status  = $data['status'] ?? 'Invalid';
         $r['st'] = $status;
         if ($status === 'Active') {
             $cd      = date('Ymd');
-            $vh      = md5($_sk . $cd);
-            $r['dk'] = base64_encode(serialize(['cd' => $cd, 's' => 'Active', 'v' => $vh]));
+            $vh      = hash_hmac('sha256', $cd . '|' . $keyHash . '|Active', $_sk);
+            $r['dk'] = base64_encode(serialize([
+                'cd' => $cd,
+                's'  => 'Active',
+                'k'  => $keyHash,
+                'v'  => $vh,
+            ]));
         }
         return $r;
     }
