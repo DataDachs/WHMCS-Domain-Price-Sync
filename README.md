@@ -2,6 +2,9 @@
 
 This repository contains the **Domain Price Sync** WHMCS addon module (`spDomainPriceSync`), which synchronizes existing client domain recurring renewal amounts with current WHMCS TLD pricing while accounting for active domain addons.
 
+This module is **free to use** (`0.00 EUR`). It uses a free one-time license key that can be ordered free of charge at:
+[https://login.streampanel.net/cart.php?a=add&pid=656](https://login.streampanel.net/cart.php?a=add&pid=656)
+
 ## Features
 * **Dry-Run & Live Sync Engine:** Compares each client domain's `recurringamount` against active WHMCS `GetTLDPricing` renewal rates plus active domain addons (`dnsmanagement`, `emailforwarding`, `idprotection`) from `tblpricing`, before applying recalculations via WHMCS `UpdateClientDomain` (`autorecalc`).
 * **Safety Guards & Exclusions:** Filter by domain status, exclude specific client IDs, domain IDs, or TLDs, optionally skip promotional or free (`0.00`) domains, control whether price decreases are applied, and skip domains with open unpaid invoices.
@@ -18,17 +21,28 @@ This repository contains the **Domain Price Sync** WHMCS addon module (`spDomain
 * PHP 8.2 or later
 
 ## Setup Instructions
-1. Clone or download this repository.
-2. Upload `modules/addons/spDomainPriceSync/` to your WHMCS `/modules/addons/spDomainPriceSync/` directory.
-3. In the WHMCS admin area, navigate to **System Settings > Addon Modules** (or **Setup > Addon Modules**).
-4. Locate **DD: Domain Price Sync**, click **Activate**, configure access permissions (and license key if applicable), and save changes.
-5. Open **Addons > Domain Price Sync** and run **System Health Check** to verify database tables and email templates.
+1. Order your **free** one-time license key at [https://login.streampanel.net/cart.php?a=add&pid=656](https://login.streampanel.net/cart.php?a=add&pid=656).
+2. Clone or download this repository.
+3. Upload `modules/addons/spDomainPriceSync/` to your WHMCS `/modules/addons/spDomainPriceSync/` directory.
+4. In the WHMCS admin area, navigate to **System Settings > Addon Modules** (or **Setup > Addon Modules**).
+5. Locate **DD: Domain Price Sync**, click **Activate**, enter your free license key, configure admin access permissions, and save changes.
+6. Open **Addons > Domain Price Sync** and run **System Health Check** to verify database tables and email templates.
 
 ## Usage
 1. Open the **Settings & Exclusions** tab to configure status filters, exclusions, client logs, public transparency options, and direct shortcuts to email templates and page URLs.
 2. Open the **Price Sync Engine** tab and click **Start Dry-Run** to preview all calculated prices without modifying the database.
 3. Review the preview table, confirm the authorization checkbox, and run **Execute Live Sync** when ready.
 4. Inspect historical runs or download CSV reports under **Sync Logs**.
+
+## License
+Licensed under the **DataDachs WHMCS Module License** (`Free & Commercial Edition`). See [LICENSE.md](LICENSE.md) for the full binding terms.
+
+| Action | Allowed |
+| :--- | :--- |
+| Use in your own WHMCS (commercial hosting & personal) | Yes (free; free one-time license key required) |
+| Customize code or templates for your own WHMCS | Yes |
+| Bypass or remove license checks (`verifyLicense`) | No |
+| Resell, redistribute, publish copies, or build competing products | No |
 
 ## Contributing
 Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
